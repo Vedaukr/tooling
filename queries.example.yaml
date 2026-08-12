@@ -1,0 +1,100 @@
+# chbench config. Copy to queries.yaml and fill in your real SQL.
+#
+# Query "class" is what drives the story in the final report:
+#   parity          - aggregation levels Redis already serves (head-to-head)
+#   new_capability  - levels only ClickHouse can do (the reason for the migration)
+#   worst_case      - widest range / highest cardinality / no filters (the ceiling)
+
+connection:
+  url: http://clickhouse-host:8123
+  user: default
+  password: ""
+  database: risk
+  timeout_s: 300
+  verify_tls: true
+
+defaults:
+  runs: 15
+  discard_result: true        # appends FORMAT Null -> measures compute, not serialisation
+  settings:
+    use_query_cache: 0        # never benchmark the result cache by accident
+    max_execution_time: 120
+    # max_threads: 8          # pin if you want per-query CPU to be comparable
+    # max_memory_usage: 10000000000
+
+# Run before every cold-cache iteration. Add SYSTEM DROP FILESYSTEM CACHE
+# if your data sits on an S3-backed disk.
+cold_cache_statements:
+  - SYSTEM DROP MARK CACHE
+  - SYSTEM DROP UNCOMPRESSED CACHE
+
+queries:
+  # ---------------------------------------------------------------- parity
+  - name: risk_by_book_current
+    class: parity
+    weight: 5                 # relative share in the concurrency mix
+    params:                   # one set picked at random per iteration
+      - { book: "BOOK_A", asof: "2026-08-07" }
+      - { book: "BOOK_B", asof: "2026-08-06" }
+      - { book: "BOOK_C", asof: "2026-08-05" }
+    sql: |
+      SELECT book, sum(pv) AS pv, sum(delta) AS delta
+      FROM risk_positions
+      WHERE asof_date = '${asof}' AND book = '${book}'
+      GROUP BY book
+
+  - name: risk_by_desk_current
+    class: parity
+    weight: 3
+    params:
+      - { desk: "RATES", asof: "2026-08-07" }
+      - { desk: "FX",    asof: "2026-08-07" }
+    sql: |
+      SELECT desk, sum(pv) AS pv, sum(delta) AS delta
+      FROM risk_positions
+      WHERE asof_date = '${asof}' AND desk = '${desk}'
+      GROUP BY desk
+
+  # -------------------------------------------------------- new_capability
+  # Same table, group-by fields dropped/added. This is the whole argument.
+  - name: risk_by_desk_x_currency
+    class: new_capability
+    weight: 2
+    params:
+      - { asof: "2026-08-07" }
+    sql: |
+      SELECT desk, currency, sum(pv) AS pv, sum(delta) AS delta
+      FROM risk_positions
+      WHERE asof_date = '${asof}'
+      GROUP BY desk, currency
+
+  - name: risk_by_counterparty_x_tenor
+    class: new_capability
+    weight: 2
+    params:
+      - { asof: "2026-08-07" }
+    sql: |
+      SELECT counterparty, tenor_bucket, sum(pv) AS pv
+      FROM risk_positions
+      WHERE asof_date = '${asof}'
+      GROUP BY counterparty, tenor_bucket
+
+  # ------------------------------------------------------------ worst_case
+  - name: full_grain_no_filter_30d
+    class: worst_case
+    weight: 1
+    runs: 5
+    sql: |
+      SELECT book, desk, counterparty, currency, tenor_bucket,
+             sum(pv) AS pv, sum(delta) AS delta, count() AS n
+      FROM risk_positions
+      WHERE asof_date >= today() - 30
+      GROUP BY book, desk, counterparty, currency, tenor_bucket
+
+  # Sanity check: how big is the thing you are scanning?
+  - name: _table_size
+    class: meta
+    runs: 1
+    weight: 0
+    sql: |
+      SELECT count() AS rows FROM risk_positions
