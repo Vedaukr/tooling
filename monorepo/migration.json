@@ -1,0 +1,43 @@
+{
+  "myorg_risk_ingest.git": {
+    "include_in_migration": true,
+    "type": "docker",
+    "path": "services/risk-ingest",
+    "params": {
+      "name": "risk-ingest",
+      "dockerfile": "src/Risk.Ingest/Dockerfile",
+      "project": "src/Risk.Ingest/Risk.Ingest.csproj",
+      "image": "risk/ingest",
+      "runtime": "net8.0"
+    }
+  },
+  "myorg_risk_api.git": {
+    "include_in_migration": true,
+    "type": "docker",
+    "path": "services/risk-api",
+    "params": {
+      "name": "risk-api",
+      "dockerfile": "src/Risk.Api/Dockerfile",
+      "project": "src/Risk.Api/Risk.Api.csproj",
+      "image": "risk/api",
+      "runtime": "net8.0"
+    }
+  },
+  "myorg_shared_contracts.git": {
+    "include_in_migration": true,
+    "type": "module",
+    "path": "libs/contracts",
+    "params": {
+      "name": "contracts",
+      "project": "src/Shared.Contracts/Shared.Contracts.csproj",
+      "package_id": "MyOrg.Shared.Contracts",
+      "runtime": "net8.0"
+    }
+  },
+  "myorg_legacy_etl.git": {
+    "include_in_migration": false,
+    "type": "docker",
+    "path": "attic/legacy-etl",
+    "params": {}
+  }
+}
